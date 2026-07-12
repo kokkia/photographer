@@ -10,9 +10,7 @@
 python3 -m venv camera_env
 source camera_env/bin/activate
 python -m pip install --upgrade pip
-python -m pip install \
-  opencv-contrib-python==5.0.0.93 \
-  mediapipe==0.10.35
+python -m pip install -r requirements.txt
 ```
 
 仮想環境を終了するときは、次を実行します。
