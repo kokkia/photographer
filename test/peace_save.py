@@ -9,7 +9,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT_DIR / "models"
 YOLO_MODEL = MODEL_DIR / "yolo11n.onnx"
@@ -22,13 +21,30 @@ HAND_COLOR = (180, 80, 255)
 PEACE_COLOR = (0, 255, 255)
 SAVED_COLOR = (120, 120, 120)
 INPUT_SIZE = 640
+COUNTDOWN_SECONDS = 3.0
 
 HAND_CONNECTIONS = (
-    (0, 1), (1, 2), (2, 3), (3, 4),
-    (0, 5), (5, 6), (6, 7), (7, 8),
-    (5, 9), (9, 10), (10, 11), (11, 12),
-    (9, 13), (13, 14), (14, 15), (15, 16),
-    (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (0, 5),
+    (5, 6),
+    (6, 7),
+    (7, 8),
+    (5, 9),
+    (9, 10),
+    (10, 11),
+    (11, 12),
+    (9, 13),
+    (13, 14),
+    (14, 15),
+    (15, 16),
+    (13, 17),
+    (17, 18),
+    (18, 19),
+    (19, 20),
+    (0, 17),
 )
 
 
@@ -93,10 +109,7 @@ class PersonTracker:
             self.next_id += 1
             self.tracks[track_id] = Track(track_id, detections[detection_index])
 
-        expired = [
-            track_id for track_id, track in self.tracks.items()
-            if track.missed_frames > self.max_missed_frames
-        ]
+        expired = [track_id for track_id, track in self.tracks.items() if track.missed_frames > self.max_missed_frames]
         for track_id in expired:
             del self.tracks[track_id]
 
@@ -104,9 +117,7 @@ class PersonTracker:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="カメラ映像から人物、顔、ピースサインをリアルタイム検出します。"
-    )
+    parser = argparse.ArgumentParser(description="カメラ映像から人物、顔、ピースサインをリアルタイム検出します。")
     parser.add_argument("--camera", type=int, default=0, help="カメラ番号（デフォルト: 0）")
     parser.add_argument(
         "--output-dir",
@@ -119,6 +130,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.35,
         help="人物検出の信頼度しきい値（デフォルト: 0.35）",
+    )
+    parser.add_argument(
+        "--countdown-seconds",
+        type=float,
+        default=COUNTDOWN_SECONDS,
+        help="ピース検出から保存までの秒数（デフォルト: 3.0）",
     )
     return parser.parse_args()
 
@@ -155,9 +172,7 @@ def create_detectors():
 
 def detect_people(frame: np.ndarray, detector, confidence: float) -> list[tuple[int, int, int, int, float]]:
     height, width = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(
-        frame, 1.0 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True, crop=False
-    )
+    blob = cv2.dnn.blobFromImage(frame, 1.0 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True, crop=False)
     detector.setInput(blob)
     output = detector.forward()[0].T
 
@@ -224,8 +239,13 @@ def draw_people(frame: np.ndarray, tracks: list[Track], saved_ids: set[int]) -> 
         state = "SAVED" if saved else "READY"
         cv2.rectangle(frame, (x, y), (x + width, y + height), color, 2)
         cv2.putText(
-            frame, f"ID {track.track_id} {state} {score:.0%}", (x, max(y - 8, 20)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2,
+            frame,
+            f"ID {track.track_id} {state} {score:.0%}",
+            (x, max(y - 8, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2,
         )
 
 
@@ -235,8 +255,13 @@ def draw_faces(frame: np.ndarray, detections) -> None:
         x, y, width, height = box.origin_x, box.origin_y, box.width, box.height
         cv2.rectangle(frame, (x, y), (x + width, y + height), FACE_COLOR, 2)
         cv2.putText(
-            frame, "Face", (x, max(y - 8, 20)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, FACE_COLOR, 2,
+            frame,
+            "Face",
+            (x, max(y - 8, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            FACE_COLOR,
+            2,
         )
 
 
@@ -257,15 +282,26 @@ def draw_hands(frame: np.ndarray, hands) -> int:
             label_x = min(x for x, _ in points)
             label_y = max(min(y for _, y in points) - 12, 25)
             cv2.putText(
-                frame, "PEACE!", (label_x, label_y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, PEACE_COLOR, 2,
+                frame,
+                "PEACE!",
+                (label_x, label_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                PEACE_COLOR,
+                2,
             )
     return peace_count
 
 
 def detect_and_draw(
-    frame, person_detector, face_detector, hand_detector, tracker,
-    saved_ids, confidence, timestamp_ms,
+    frame,
+    person_detector,
+    face_detector,
+    hand_detector,
+    tracker,
+    saved_ids,
+    confidence,
+    timestamp_ms,
 ):
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
@@ -284,11 +320,20 @@ def detect_and_draw(
     cv2.putText(
         frame,
         f"People: {len(tracks)}  Faces: {len(faces)}  Peace: {peace_count}",
-        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2,
     )
     cv2.putText(
-        frame, status, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
-        PERSON_COLOR if ready else SAVED_COLOR, 2,
+        frame,
+        status,
+        (10, 60),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        PERSON_COLOR if ready else SAVED_COLOR,
+        2,
     )
     return active_ids, peace_count
 
@@ -303,8 +348,24 @@ def save_frame(frame: np.ndarray, output_dir: Path, prefix: str) -> bool:
     return False
 
 
+def draw_countdown(frame: np.ndarray, remaining_seconds: float) -> None:
+    height, width = frame.shape[:2]
+    count = max(1, math.ceil(remaining_seconds))
+    text = f"{count}"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 2.0
+    thickness = 4
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+    x = max((width - text_width) // 2, 10)
+    y = max((height + text_height) // 2, text_height + baseline + 10)
+    cv2.putText(frame, text, (x, y), font, scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+
 def main() -> None:
     args = parse_args()
+    if args.countdown_seconds < 0:
+        raise ValueError("--countdown-seconds は 0 以上にしてください。")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     person_detector, face_detector, hand_detector = create_detectors()
 
@@ -312,12 +373,12 @@ def main() -> None:
     if not camera.isOpened():
         face_detector.close()
         hand_detector.close()
-        raise RuntimeError(
-            f"カメラ {args.camera} を開けませんでした。接続状態やカメラ番号を確認してください。"
-        )
+        raise RuntimeError(f"カメラ {args.camera} を開けませんでした。接続状態やカメラ番号を確認してください。")
 
     tracker = PersonTracker()
     saved_ids: set[int] = set()
+    countdown_start: float | None = None
+    countdown_ids: set[int] = set()
 
     print("ピースで自動保存 / s: 手動保存 / q または Esc: 終了")
     start_time = time.monotonic()
@@ -328,22 +389,46 @@ def main() -> None:
                 print("カメラから画像を取得できませんでした。")
                 break
 
+            raw_frame = frame.copy()
             timestamp_ms = int((time.monotonic() - start_time) * 1000)
             active_ids, peace_count = detect_and_draw(
-                frame, person_detector, face_detector, hand_detector, tracker,
-                saved_ids, args.person_confidence, timestamp_ms,
+                frame,
+                person_detector,
+                face_detector,
+                hand_detector,
+                tracker,
+                saved_ids,
+                args.person_confidence,
+                timestamp_ms,
             )
 
-            # 未保存の人物が画面内にいて、少なくとも一人がピースしたら一度だけ保存。
-            if peace_count > 0 and active_ids - saved_ids:
-                if save_frame(frame, args.output_dir, "peace"):
-                    saved_ids.update(active_ids)
+            unsaved_active_ids = active_ids - saved_ids
+            now = time.monotonic()
+
+            # 未保存の人物が画面内にいて、少なくとも一人がピースしたら保存カウントダウンを開始。
+            if countdown_start is None and peace_count > 0 and unsaved_active_ids:
+                countdown_start = now
+                countdown_ids = set(unsaved_active_ids)
+
+            if countdown_start is not None:
+                if not (countdown_ids & active_ids):
+                    countdown_start = None
+                    countdown_ids.clear()
+                else:
+                    remaining_seconds = args.countdown_seconds - (now - countdown_start)
+                    if remaining_seconds <= 0:
+                        if save_frame(raw_frame, args.output_dir, "peace"):
+                            saved_ids.update(countdown_ids)
+                        countdown_start = None
+                        countdown_ids.clear()
+                    else:
+                        draw_countdown(frame, remaining_seconds)
 
             cv2.imshow("Person, Face and Peace Detection", frame)
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("s"):
-                save_frame(frame, args.output_dir, "capture")
+                save_frame(raw_frame, args.output_dir, "capture")
             elif key in (ord("q"), 27):
                 break
     finally:
