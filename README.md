@@ -59,3 +59,6 @@ python test/face_recognition.py --camera 1
 
 - `s`: 検出結果をJPEGで `captured_images/` に保存
 - `q` または `Esc`: 終了
+
+## Result
+![sample](./sample_data/sample_data.jpg)
