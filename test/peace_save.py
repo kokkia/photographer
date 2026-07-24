@@ -389,6 +389,7 @@ def main() -> None:
                 print("カメラから画像を取得できませんでした。")
                 break
 
+            frame = cv2.flip(frame, 1)  # ミラー表示
             raw_frame = frame.copy()
             timestamp_ms = int((time.monotonic() - start_time) * 1000)
             active_ids, peace_count = detect_and_draw(
