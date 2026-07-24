@@ -20,7 +20,8 @@ FACE_COLOR = (255, 120, 0)
 HAND_COLOR = (180, 80, 255)
 PEACE_COLOR = (0, 255, 255)
 SAVED_COLOR = (120, 120, 120)
-INPUT_SIZE = 640
+INPUT_SIZE = 416
+DETECTION_INTERVAL = 2
 COUNTDOWN_SECONDS = 3.0
 
 HAND_CONNECTIONS = (
@@ -137,6 +138,18 @@ def parse_args() -> argparse.Namespace:
         default=COUNTDOWN_SECONDS,
         help="ピース検出から保存までの秒数（デフォルト: 3.0）",
     )
+    parser.add_argument(
+        "--input-size",
+        type=int,
+        default=INPUT_SIZE,
+        help="YOLOの入力サイズ（デフォルト: 416、小さいほど高速）",
+    )
+    parser.add_argument(
+        "--detection-interval",
+        type=int,
+        default=DETECTION_INTERVAL,
+        help="検出を行うフレーム間隔（デフォルト: 2）",
+    )
     return parser.parse_args()
 
 
@@ -170,27 +183,31 @@ def create_detectors():
     return person_detector, face_detector, hand_detector
 
 
-def detect_people(frame: np.ndarray, detector, confidence: float) -> list[tuple[int, int, int, int, float]]:
+def detect_people(
+    frame: np.ndarray,
+    detector,
+    confidence: float,
+    input_size: int,
+) -> list[tuple[int, int, int, int, float]]:
     height, width = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(frame, 1.0 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True, crop=False)
+    blob = cv2.dnn.blobFromImage(frame, 1.0 / 255.0, (input_size, input_size), swapRB=True, crop=False)
     detector.setInput(blob)
     output = detector.forward()[0].T
 
-    boxes: list[list[int]] = []
-    scores: list[float] = []
-    scale_x = width / INPUT_SIZE
-    scale_y = height / INPUT_SIZE
-
     # COCOデータセットではクラス0がperson。YOLO11の出力は xywh + 80クラス。
-    for detection in output:
-        score = float(detection[4])
-        if score < confidence:
-            continue
-        center_x, center_y, box_width, box_height = detection[:4]
-        x = int((center_x - box_width / 2) * scale_x)
-        y = int((center_y - box_height / 2) * scale_y)
-        boxes.append([x, y, int(box_width * scale_x), int(box_height * scale_y)])
-        scores.append(score)
+    # 数千候補をPythonで1件ずつ処理せず、NumPyでまとめて絞り込みます。
+    scores_array = output[:, 4]
+    selected = output[scores_array >= confidence]
+    if selected.size == 0:
+        return []
+
+    scores = selected[:, 4].astype(float).tolist()
+    xywh = selected[:, :4].copy()
+    xywh[:, 0] = (xywh[:, 0] - xywh[:, 2] / 2) * (width / input_size)
+    xywh[:, 1] = (xywh[:, 1] - xywh[:, 3] / 2) * (height / input_size)
+    xywh[:, 2] *= width / input_size
+    xywh[:, 3] *= height / input_size
+    boxes = xywh.astype(np.int32).tolist()
 
     indices = cv2.dnn.NMSBoxes(boxes, scores, confidence, 0.45)
     return [(*boxes[int(index)], scores[int(index)]) for index in indices]
@@ -302,14 +319,21 @@ def detect_and_draw(
     saved_ids,
     confidence,
     timestamp_ms,
+    input_size,
+    run_detection,
+    cached_tracks,
+    cached_faces,
+    cached_hands,
 ):
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-
-    people = detect_people(frame, person_detector, confidence)
-    tracks = tracker.update(people)
-    faces = face_detector.detect_for_video(mp_image, timestamp_ms).detections
-    hands = hand_detector.detect_for_video(mp_image, timestamp_ms).hand_landmarks
+    if run_detection:
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        people = detect_people(frame, person_detector, confidence, input_size)
+        tracks = tracker.update(people)
+        faces = face_detector.detect_for_video(mp_image, timestamp_ms).detections
+        hands = hand_detector.detect_for_video(mp_image, timestamp_ms).hand_landmarks
+    else:
+        tracks, faces, hands = cached_tracks, cached_faces, cached_hands
 
     draw_people(frame, tracks, saved_ids)
     draw_faces(frame, faces)
@@ -335,7 +359,7 @@ def detect_and_draw(
         PERSON_COLOR if ready else SAVED_COLOR,
         2,
     )
-    return active_ids, peace_count
+    return active_ids, peace_count, tracks, faces, hands
 
 
 def save_frame(frame: np.ndarray, output_dir: Path, prefix: str) -> bool:
@@ -366,6 +390,11 @@ def main() -> None:
     args = parse_args()
     if args.countdown_seconds < 0:
         raise ValueError("--countdown-seconds は 0 以上にしてください。")
+    if args.input_size < 160 or args.input_size % 32 != 0:
+        raise ValueError("--input-size は160以上かつ32の倍数にしてください。")
+    if args.detection_interval < 1:
+        raise ValueError("--detection-interval は1以上にしてください。")
+    cv2.setUseOptimized(True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     person_detector, face_detector, hand_detector = create_detectors()
 
@@ -379,6 +408,13 @@ def main() -> None:
     saved_ids: set[int] = set()
     countdown_start: float | None = None
     countdown_ids: set[int] = set()
+    cached_tracks: list[Track] = []
+    cached_faces = []
+    cached_hands = []
+    frame_index = 0
+    fps = 0.0
+    fps_started = time.monotonic()
+    fps_frames = 0
 
     print("ピースで自動保存 / s: 手動保存 / q または Esc: 終了")
     start_time = time.monotonic()
@@ -392,7 +428,7 @@ def main() -> None:
             frame = cv2.flip(frame, 1)  # ミラー表示
             raw_frame = frame.copy()
             timestamp_ms = int((time.monotonic() - start_time) * 1000)
-            active_ids, peace_count = detect_and_draw(
+            active_ids, peace_count, cached_tracks, cached_faces, cached_hands = detect_and_draw(
                 frame,
                 person_detector,
                 face_detector,
@@ -401,7 +437,19 @@ def main() -> None:
                 saved_ids,
                 args.person_confidence,
                 timestamp_ms,
+                args.input_size,
+                frame_index % args.detection_interval == 0,
+                cached_tracks,
+                cached_faces,
+                cached_hands,
             )
+            frame_index += 1
+            fps_frames += 1
+            fps_elapsed = time.monotonic() - fps_started
+            if fps_elapsed >= 0.5:
+                fps = fps_frames / fps_elapsed
+                fps_frames = 0
+                fps_started = time.monotonic()
 
             unsaved_active_ids = active_ids - saved_ids
             now = time.monotonic()
@@ -425,6 +473,15 @@ def main() -> None:
                     else:
                         draw_countdown(frame, remaining_seconds)
 
+            cv2.putText(
+                frame,
+                f"FPS: {fps:.1f}",
+                (10, 90),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 255, 255),
+                2,
+            )
             cv2.imshow("Person, Face and Peace Detection", frame)
             key = cv2.waitKey(1) & 0xFF
 
