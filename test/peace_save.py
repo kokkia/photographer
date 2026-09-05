@@ -136,7 +136,7 @@ def parse_args() -> argparse.Namespace:
         "--countdown-seconds",
         type=float,
         default=COUNTDOWN_SECONDS,
-        help="ピース検出から保存までの秒数（デフォルト: 3.0）",
+        help="ピースを連続検出してから保存するまでの秒数（デフォルト: 3.0）",
     )
     parser.add_argument(
         "--input-size",
@@ -454,13 +454,15 @@ def main() -> None:
             unsaved_active_ids = active_ids - saved_ids
             now = time.monotonic()
 
-            # 未保存の人物が画面内にいて、少なくとも一人がピースしたら保存カウントダウンを開始。
+            # 未保存の人物が画面内にいて、少なくとも一人がピースしたら計測を開始。
             if countdown_start is None and peace_count > 0 and unsaved_active_ids:
                 countdown_start = now
                 countdown_ids = set(unsaved_active_ids)
 
             if countdown_start is not None:
-                if not (countdown_ids & active_ids):
+                # ピースが途切れた場合、または対象人物が画面から外れた場合は
+                # 経過時間をリセットし、次のピース検出から3秒間を計り直す。
+                if peace_count == 0 or not (countdown_ids & active_ids):
                     countdown_start = None
                     countdown_ids.clear()
                 else:

@@ -40,6 +40,11 @@ curl -fL \
 
 ```bash
 source camera_env/bin/activate
+```
+
+## Capture test
+
+```bash
 python test/face_recognition.py
 ```
 
@@ -55,10 +60,50 @@ python test/face_recognition.py --person-confidence 0.5
 python test/face_recognition.py --camera 1
 ```
 
-## 操作
+### 操作
 
 - `s`: 検出結果をJPEGで `captured_images/` に保存
 - `q` または `Esc`: 終了
 
-## Result
+### Result
 ![sample](./sample_data/sample_data.jpg)
+
+## Instax Link 3 test
+
+Instaxプリンターの電源を入れ、PCのBluetoothを有効にします。すでにOSから接続またはペアリング済みの場合も、その機器を検出して利用します。
+
+最初にプリンターのBluetoothアドレスを確認します。
+
+```bash
+source camera_env/bin/activate
+python test/bluetooth_test.py
+```
+
+表示されたアドレスを、`test/instax_test.py` の `device_address` に設定します。
+
+```python
+instax = InstaxBLE(
+    device_address="FA:AB:BC:XX:XX:XX",
+    verbose=True,
+)
+```
+
+印刷するJPEG画像を次の場所へ配置します。
+
+```text
+test/captured_images/test_image.jpg
+```
+
+テストは必ずプロジェクトのルートディレクトリから実行します。
+
+```bash
+source camera_env/bin/activate
+python test/instax_test.py
+```
+
+プリンターの検出、接続、画像変換、転送が順番に実行されます。横向き画像は90度回転し、縦横比を維持したままプリンターの画像サイズに合わせて中央をトリミングします。元画像は変更されません。
+
+> [!WARNING]
+> `instax_test.py` は `enable_printing()` を呼び出すため、実行すると実際にフィルムを1枚使用して印刷します。
+
+処理を中断する場合は `Ctrl+C` を押します。接続中であれば、終了処理でプリンターから切断されます。
