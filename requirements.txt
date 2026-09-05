@@ -1,2 +1,6 @@
 opencv-contrib-python==5.0.0.93
 mediapipe==0.10.35
+instax-api --no-deps
+loguru
+bleak
+
