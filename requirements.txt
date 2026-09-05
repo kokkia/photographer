@@ -3,4 +3,4 @@ mediapipe==0.10.35
 instax-api --no-deps
 loguru
 bleak
-
+simplepyble==1.1.0
