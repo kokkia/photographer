@@ -418,6 +418,20 @@ def draw_countdown(frame: np.ndarray, remaining_seconds: float) -> None:
     cv2.putText(frame, text, (x, y), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
 
+def crop_to_4_3(frame: np.ndarray) -> np.ndarray:
+    """画像を歪ませず、中央を最大サイズの4:3に切り出す。"""
+    height, width = frame.shape[:2]
+    scale = min(width // 3, height // 4)
+    if scale < 1:
+        raise ValueError("画像は4x3ピクセル以上である必要があります。")
+
+    target_width = scale * 3
+    target_height = scale * 4
+    left = (width - target_width) // 2
+    top = (height - target_height) // 2
+    return frame[top : top + target_height, left : left + target_width]
+
+
 class InstaxPrintWorker(threading.Thread):
     """印刷要求を順番に受け取るInstax用ワーカースレッド。"""
 
@@ -531,6 +545,7 @@ class CameraDetectionWorker(threading.Thread):
 
     def process_frame(self, captured_frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """1フレームの推論、状態更新、描画を行う。"""
+        captured_frame = crop_to_4_3(captured_frame)
         frame = cv2.flip(captured_frame, 1)  # ミラー表示
         raw_frame = frame.copy()
         timestamp_ms = int((time.monotonic() - self.started_at) * 1000)
