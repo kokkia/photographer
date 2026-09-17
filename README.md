@@ -2,7 +2,7 @@
 
 ノートPCのカメラ映像から、人物・顔・ピースサインをリアルタイムで検出するOpenCVアプリです。
 
-## 環境構築
+## 環境構築 (venv)
 
 プロジェクトのルートディレクトリで、Pythonの仮想環境を作成します。
 
@@ -17,6 +17,18 @@ python -m pip install -r requirements.txt
 
 ```bash
 deactivate
+```
+
+## 環境構築 (conda)
+```bash
+conda create -n camera310 python=3.10
+conda activate camera310
+python -m pip install -r requirements.txt
+```
+仮想環境を終了するときは、次を実行します。
+
+```bash
+conda deactivate
 ```
 
 ## モデルファイル
