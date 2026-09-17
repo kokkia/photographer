@@ -20,11 +20,17 @@ deactivate
 ```
 
 ## 環境構築 (conda)
+
 ```bash
 conda create -n camera310 python=3.10
 conda activate camera310
+conda install -c conda-forge xcb-util-cursor
 python -m pip install -r requirements.txt
 ```
+
+GUIには `PySide6==6.9.3` を使用します。PySide6は `requirements.txt` から、
+Linux版Qtの起動に必要な `xcb-util-cursor` はCondaからインストールされます。
+
 仮想環境を終了するときは、次を実行します。
 
 ```bash
@@ -53,6 +59,16 @@ curl -fL \
 ```bash
 source camera_env/bin/activate
 ```
+
+Qt GUIは次のコマンドで起動します。
+
+```bash
+conda activate camera310
+python -m src.gui
+```
+
+`xcb` プラットフォームプラグインのエラーが表示されるLinux環境では、
+`xcb-util-cursor` がインストールされていることを確認してください。
 
 ## Capture test
 

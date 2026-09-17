@@ -311,16 +311,28 @@ class CameraDetectionWorker(threading.Thread):
 
     WINDOW_NAME = "Person, Face and Peace Detection"
 
-    def __init__(self, settings: CameraSettings, print_queue: Queue[PrintJob | None], stop_event: threading.Event) -> None:
+    def __init__(
+        self,
+        settings: CameraSettings,
+        print_queue: Queue[PrintJob | None],
+        stop_event: threading.Event,
+        *,
+        show_window: bool = True,
+    ) -> None:
         super().__init__(name="camera-detection-worker")
         self.settings = settings
         self.print_queue = print_queue
         self.stop_event = stop_event
+        self.show_window = show_window
         self.error: BaseException | None = None
+        self.capture_requested = threading.Event()
+        self.frame_lock = threading.Lock()
+        self.latest_display_frame: np.ndarray | None = None
         self.tracker = PersonTracker()
         self.saved_ids: set[int] = set()
         self.countdown_start: float | None = None
         self.countdown_ids: set[int] = set()
+        self.active_ids: set[int] = set()
         self.cached_tracks: list[Track] = []
         self.cached_faces = []
         self.cached_hands = []
@@ -332,6 +344,17 @@ class CameraDetectionWorker(threading.Thread):
         self.person_detector = None
         self.face_detector = None
         self.hand_detector = None
+
+    def request_capture(self) -> None:
+        """次に処理できたフレームを保存するよう要求する。"""
+        self.capture_requested.set()
+
+    def get_latest_display_frame(self) -> np.ndarray | None:
+        """GUI表示用の最新フレームを安全にコピーして返す。"""
+        with self.frame_lock:
+            if self.latest_display_frame is None:
+                return None
+            return self.latest_display_frame.copy()
 
     def run(self) -> None:
         try:
@@ -362,19 +385,29 @@ class CameraDetectionWorker(threading.Thread):
                     print("カメラから画像を取得できませんでした。")
                     break
                 display_frame, raw_frame = self.process_frame(captured_frame)
-                cv2.imshow(self.WINDOW_NAME, display_frame)
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord("s"):
-                    save_frame(raw_frame, self.settings.output_dir, "capture")
-                elif key in (ord("q"), 27):
-                    break
+
+                with self.frame_lock:
+                    self.latest_display_frame = display_frame.copy()
+
+                if self.capture_requested.is_set():
+                    self.capture_requested.clear()
+                    self._save_and_request_print(raw_frame, "capture", self.active_ids)
+
+                if self.show_window:
+                    cv2.imshow(self.WINDOW_NAME, display_frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("s"):
+                        self._save_and_request_print(raw_frame, "capture", self.active_ids)
+                    elif key in (ord("q"), 27):
+                        break
         finally:
             camera.release()
             if self.face_detector is not None:
                 self.face_detector.close()
             if self.hand_detector is not None:
                 self.hand_detector.close()
-            cv2.destroyAllWindows()
+            if self.show_window:
+                cv2.destroyAllWindows()
 
     def process_frame(self, captured_frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         captured_frame = crop_to_4_3(captured_frame)
@@ -388,6 +421,7 @@ class CameraDetectionWorker(threading.Thread):
             self.frame_index % self.settings.detection_interval == 0,
             self.cached_tracks, self.cached_faces, self.cached_hands,
         )
+        self.active_ids = set(active_ids)
         self.frame_index += 1
         self._update_fps()
         self._update_countdown(frame, raw_frame, active_ids, peace_count)
@@ -426,6 +460,18 @@ class CameraDetectionWorker(threading.Thread):
             self._request_print(output_path, self.countdown_ids)
         self.countdown_start = None
         self.countdown_ids.clear()
+
+    def _save_and_request_print(
+        self,
+        frame: np.ndarray,
+        prefix: str,
+        person_ids: set[int],
+    ) -> Path | None:
+        """画像を保存し、成功した場合だけ印刷要求を送る。"""
+        output_path = save_frame(frame, self.settings.output_dir, prefix)
+        if output_path is not None:
+            self._request_print(output_path, person_ids)
+        return output_path
 
     def _request_print(self, image_path: Path, person_ids: set[int]) -> None:
         job = PrintJob(
