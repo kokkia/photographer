@@ -164,7 +164,8 @@ class CameraWindow(QMainWindow):
 
 
 def main() -> int:
-    settings = CameraSettings.from_args(parse_args())
+    args = parse_args()
+    settings = CameraSettings.from_args(args)
     validate_settings(settings)
 
     app = QApplication(sys.argv)
@@ -176,7 +177,12 @@ def main() -> int:
         stop_event,
         show_window=False,
     )
-    instax_worker = InstaxPrintWorker(print_queue)
+    instax_worker = InstaxPrintWorker(
+        print_queue,
+        device_address=args.instax_address,
+        connect_timeout=args.instax_connect_timeout,
+        verbose=args.instax_verbose,
+    )
     window = CameraWindow(camera_worker, instax_worker, print_queue, stop_event)
 
     instax_worker.start()

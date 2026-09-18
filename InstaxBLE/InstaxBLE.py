@@ -577,6 +577,11 @@ class InstaxBLE:
             print("Waiting for one minute...")
         sleep(60)
 
+    def wait_thirty_seconds(self):
+        if not self.quiet:
+            print("Waiting for 30 seconds...")
+        sleep(30)
+
 
 def main(args={}):
     """ Example usage of the InstaxBLE class """

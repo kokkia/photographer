@@ -1,4 +1,5 @@
 import argparse
+import os
 import threading
 from pathlib import Path
 from queue import Queue
@@ -58,6 +59,22 @@ def parse_args() -> argparse.Namespace:
         default=DETECTION_INTERVAL,
         help="検出を行うフレーム間隔（デフォルト: 2）",
     )
+    parser.add_argument(
+        "--instax-address",
+        default=os.environ.get("INSTAX_DEVICE_ADDRESS"),
+        help="InstaxのBluetoothアドレス（省略時: 自動検索）",
+    )
+    parser.add_argument(
+        "--instax-connect-timeout",
+        type=int,
+        default=10,
+        help="Instax検索のタイムアウト秒数（デフォルト: 10）",
+    )
+    parser.add_argument(
+        "--instax-verbose",
+        action="store_true",
+        help="Instax通信の詳細ログを表示",
+    )
     return parser.parse_args()
 
 
@@ -71,13 +88,19 @@ def validate_settings(settings: CameraSettings) -> None:
 
 
 def main() -> None:
-    settings = CameraSettings.from_args(parse_args())
+    args = parse_args()
+    settings = CameraSettings.from_args(args)
     validate_settings(settings)
 
     stop_event = threading.Event()
     print_queue: Queue[PrintJob | None] = Queue()
     camera_worker = CameraDetectionWorker(settings, print_queue, stop_event)
-    instax_worker = InstaxPrintWorker(print_queue)
+    instax_worker = InstaxPrintWorker(
+        print_queue,
+        device_address=args.instax_address,
+        connect_timeout=args.instax_connect_timeout,
+        verbose=args.instax_verbose,
+    )
 
     instax_worker.start()
     camera_worker.start()

@@ -1,6 +1,7 @@
 opencv-contrib-python==5.0.0.93
 mediapipe==0.10.35
 PySide6==6.9.3
+Pillow
 # LinuxのConda環境では別途実行: conda install -c conda-forge xcb-util-cursor
 # instax-api --no-deps
 loguru

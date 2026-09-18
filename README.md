@@ -64,11 +64,29 @@ Qt GUIは次のコマンドで起動します。
 
 ```bash
 conda activate camera310
-python -m src.gui
+python -m src.gui --instax-address FA:AB:BC:XX:XX:XX
 ```
+
+起動スクリプトを使用すると、`camera310` の有効化とプロジェクトディレクトリへの移動も自動で行われます。
+
+```bash
+./script/run_photographer.sh --instax-address FA:AB:BC:XX:XX:XX
+```
+
+別名のConda環境を使う場合は、`PHOTOGRAPHER_CONDA_ENV` で指定できます。
+
+```bash
+PHOTOGRAPHER_CONDA_ENV=my-camera-env ./script/run_photographer.sh
+```
+
+`--instax-address` を省略すると、名前が `INSTAX-` で始まるプリンターを自動検索します。
+環境変数 `INSTAX_DEVICE_ADDRESS` でもBluetoothアドレスを指定できます。
 
 `xcb` プラットフォームプラグインのエラーが表示されるLinux環境では、
 `xcb-util-cursor` がインストールされていることを確認してください。
+
+> [!WARNING]
+> 撮影ボタンまたはピース検出で写真を保存すると、接続したInstaxで実際に印刷され、フィルムを1枚使用します。
 
 ## Capture test
 
