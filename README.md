@@ -67,6 +67,16 @@ conda activate camera310
 python -m src.gui --instax-address FA:AB:BC:XX:XX:XX
 ```
 
+GUIはスタート画面から始まり、開始ボタンを押すと認識・撮影画面へ移ります。
+手動撮影またはピースサインによる自動撮影が完了すると撮影画像を表示し、
+「印刷する」を選ぶとスタート画面へ戻ります。「印刷しない」を選ぶと、
+新しい認識・撮影セッションへ戻ります。
+スタート画面の画像は `assets/start_screen.jpg` に置くか、次のように指定できます。
+
+```bash
+python -m src.gui --start-image path/to/start-image.jpg
+```
+
 起動スクリプトを使用すると、`camera310` の有効化とプロジェクトディレクトリへの移動も自動で行われます。
 
 ```bash
@@ -86,7 +96,8 @@ PHOTOGRAPHER_CONDA_ENV=my-camera-env ./script/run_photographer.sh
 `xcb-util-cursor` がインストールされていることを確認してください。
 
 > [!WARNING]
-> 撮影ボタンまたはピース検出で写真を保存すると、接続したInstaxで実際に印刷され、フィルムを1枚使用します。
+> GUIの確認画面で「印刷する」を押すと、接続したInstaxで実際に印刷され、フィルムを1枚使用します。
+> `python -m src.main` で起動した場合は、撮影後すぐに印刷されます。
 
 ## Capture test
 

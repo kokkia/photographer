@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 
 import cv2
 import mediapipe as mp
@@ -318,14 +318,21 @@ class CameraDetectionWorker(threading.Thread):
         stop_event: threading.Event,
         *,
         show_window: bool = True,
+        start_paused: bool = False,
     ) -> None:
         super().__init__(name="camera-detection-worker")
         self.settings = settings
         self.print_queue = print_queue
         self.stop_event = stop_event
         self.show_window = show_window
+        self.session_controlled = start_paused
         self.error: BaseException | None = None
         self.capture_requested = threading.Event()
+        self.start_session_requested = threading.Event()
+        self.processing_enabled = threading.Event()
+        if not start_paused:
+            self.processing_enabled.set()
+        self.completed_captures: Queue[PrintJob] = Queue()
         self.frame_lock = threading.Lock()
         self.latest_display_frame: np.ndarray | None = None
         self.tracker = PersonTracker()
@@ -347,7 +354,20 @@ class CameraDetectionWorker(threading.Thread):
 
     def request_capture(self) -> None:
         """次に処理できたフレームを保存するよう要求する。"""
-        self.capture_requested.set()
+        if self.processing_enabled.is_set():
+            self.capture_requested.set()
+
+    def start_capture_session(self) -> None:
+        """GUIから新しい認識・撮影セッションの開始を要求する。"""
+        if self.session_controlled:
+            self.start_session_requested.set()
+
+    def consume_completed_capture(self) -> PrintJob | None:
+        """保存済み画像をGUIへ一度だけ通知する。"""
+        try:
+            return self.completed_captures.get_nowait()
+        except Empty:
+            return None
 
     def get_latest_display_frame(self) -> np.ndarray | None:
         """GUI表示用の最新フレームを安全にコピーして返す。"""
@@ -384,6 +404,12 @@ class CameraDetectionWorker(threading.Thread):
                 if not success:
                     print("カメラから画像を取得できませんでした。")
                     break
+
+                if self.start_session_requested.is_set():
+                    self._begin_capture_session()
+                if not self.processing_enabled.is_set():
+                    continue
+
                 display_frame, raw_frame = self.process_frame(captured_frame)
 
                 with self.frame_lock:
@@ -391,13 +417,13 @@ class CameraDetectionWorker(threading.Thread):
 
                 if self.capture_requested.is_set():
                     self.capture_requested.clear()
-                    self._save_and_request_print(raw_frame, "capture", self.active_ids)
+                    self._save_capture(raw_frame, "capture", self.active_ids)
 
                 if self.show_window:
                     cv2.imshow(self.WINDOW_NAME, display_frame)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("s"):
-                        self._save_and_request_print(raw_frame, "capture", self.active_ids)
+                        self._save_capture(raw_frame, "capture", self.active_ids)
                     elif key in (ord("q"), 27):
                         break
         finally:
@@ -408,6 +434,23 @@ class CameraDetectionWorker(threading.Thread):
                 self.hand_detector.close()
             if self.show_window:
                 cv2.destroyAllWindows()
+
+    def _begin_capture_session(self) -> None:
+        """カメラスレッド上で前回の認識状態を消してセッションを開始する。"""
+        self.start_session_requested.clear()
+        self.capture_requested.clear()
+        self.tracker = PersonTracker()
+        self.saved_ids.clear()
+        self.countdown_start = None
+        self.countdown_ids.clear()
+        self.active_ids.clear()
+        self.cached_tracks = []
+        self.cached_faces = []
+        self.cached_hands = []
+        self.frame_index = 0
+        with self.frame_lock:
+            self.latest_display_frame = None
+        self.processing_enabled.set()
 
     def process_frame(self, captured_frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         captured_frame = crop_to_4_3(captured_frame)
@@ -457,28 +500,36 @@ class CameraDetectionWorker(threading.Thread):
         output_path = save_frame(raw_frame, self.settings.output_dir, "peace")
         if output_path is not None:
             self.saved_ids.update(self.countdown_ids)
-            self._request_print(output_path, self.countdown_ids)
+            self._handle_saved_capture(output_path, self.countdown_ids)
         self.countdown_start = None
         self.countdown_ids.clear()
 
-    def _save_and_request_print(
+    def _save_capture(
         self,
         frame: np.ndarray,
         prefix: str,
         person_ids: set[int],
     ) -> Path | None:
-        """画像を保存し、成功した場合だけ印刷要求を送る。"""
+        """画像を保存し、起動方法に応じて確認画面または印刷処理へ渡す。"""
         output_path = save_frame(frame, self.settings.output_dir, prefix)
         if output_path is not None:
-            self._request_print(output_path, person_ids)
+            self._handle_saved_capture(output_path, person_ids)
         return output_path
 
-    def _request_print(self, image_path: Path, person_ids: set[int]) -> None:
+    def _handle_saved_capture(self, image_path: Path, person_ids: set[int]) -> None:
+        """GUIには確認用ジョブを渡し、それ以外では直ちに印刷要求を送る。"""
         job = PrintJob(
             image_path=image_path,
             created_at=datetime.now(),
             person_ids=tuple(sorted(person_ids)),
         )
+        if self.session_controlled:
+            self.processing_enabled.clear()
+            self.capture_requested.clear()
+            self.completed_captures.put(job)
+            print(f"撮影画像を確認画面へ送りました: {job.image_path}")
+            return
+
         self.print_queue.put(job)
         print("Instax印刷要求を送信しました")
         print(f"  image_path: {job.image_path}")

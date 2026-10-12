@@ -75,6 +75,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Instax通信の詳細ログを表示",
     )
+    parser.add_argument(
+        "--start-image",
+        type=Path,
+        help="GUIのスタート画面に表示する画像",
+    )
     return parser.parse_args()
 
 
