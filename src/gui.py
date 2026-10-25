@@ -282,9 +282,9 @@ class CameraWindow(QMainWindow):
             self.review_image.setText(f"撮影画像を表示できませんでした\n{job.image_path}")
         else:
             self.review_image.setText("")
-            self._scale_review_image()
         self.review_status.setText("この写真を印刷しますか？")
         self.pages.setCurrentWidget(self.review_page)
+        QTimer.singleShot(0, self._scale_review_image)
 
     def print_captured_photo(self) -> None:
         if self.pending_print_job is None:
