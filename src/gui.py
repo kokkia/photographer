@@ -79,7 +79,10 @@ class CameraWindow(QMainWindow):
         self.pending_print_job: PrintJob | None = None
 
         self.setWindowTitle("Photographer")
-        self.resize(1100, 850)
+        # self.resize(1100, 850)
+        self.resize(600, 1024)
+        self.min_image_height = 480
+        self.min_image_width = 360
 
         self.pages = QStackedWidget()
         self.start_page = self._create_start_page()
@@ -97,7 +100,8 @@ class CameraWindow(QMainWindow):
     def _create_start_page(self) -> QWidget:
         self.start_image = QLabel()
         self.start_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.start_image.setMinimumSize(640, 480)
+        # self.start_image.setMinimumSize(640, 480)
+        self.start_image.setMinimumSize(self.min_image_height, self.min_image_width)
         self.start_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.start_image.setStyleSheet(
             "background-color: #f3f0ea; color: #777; font-size: 18px; "
@@ -140,7 +144,7 @@ class CameraWindow(QMainWindow):
     def _create_camera_page(self) -> QWidget:
         self.preview = QLabel("カメラを起動しています...")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setMinimumSize(640, 480)
+        self.preview.setMinimumSize(self.min_image_height, self.min_image_width)
         self.preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview.setStyleSheet("background-color: #111; color: #ddd; font-size: 18px;")
 
@@ -179,7 +183,7 @@ class CameraWindow(QMainWindow):
 
         self.review_image = QLabel("撮影画像を読み込んでいます...")
         self.review_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.review_image.setMinimumSize(640, 480)
+        self.review_image.setMinimumSize(self.min_image_height, self.min_image_width)
         self.review_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.review_image.setStyleSheet("background-color: #111; color: #ddd; font-size: 18px;")
 
@@ -395,6 +399,7 @@ def main() -> int:
     instax_worker.start()
     camera_worker.start()
     window.show()
+    # window.showFullScreen()
     exit_code = app.exec()
     window.shutdown()
     return exit_code
