@@ -118,15 +118,15 @@ class CameraWindow(QMainWindow):
         self.start_button.setStyleSheet("font-size: 20px; font-weight: bold;")
         self.start_button.clicked.connect(self.start_capture_session)
 
-        start_exit_button = QPushButton("終了")
-        start_exit_button.setMinimumSize(140, 52)
-        start_exit_button.clicked.connect(self.close)
+        # start_exit_button = QPushButton("終了")
+        # start_exit_button.setMinimumSize(140, 52)
+        # start_exit_button.clicked.connect(self.close)
 
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         button_layout.addWidget(self.start_button)
-        button_layout.addSpacing(20)
-        button_layout.addWidget(start_exit_button)
+        # button_layout.addSpacing(20)
+        # button_layout.addWidget(start_exit_button)
         button_layout.addStretch()
 
         layout = QVBoxLayout()
@@ -155,15 +155,20 @@ class CameraWindow(QMainWindow):
         self.capture_button.setMinimumSize(160, 52)
         self.capture_button.clicked.connect(self.capture)
 
-        self.exit_button = QPushButton("終了")
-        self.exit_button.setMinimumSize(160, 52)
-        self.exit_button.clicked.connect(self.close)
+        self.back_button = QPushButton("戻る")
+        self.back_button.setMinimumSize(120, 52)
+        self.back_button.clicked.connect(self.cancel_capture_session)
+
+        # self.exit_button = QPushButton("終了")
+        # self.exit_button.setMinimumSize(160, 52)
+        # self.exit_button.clicked.connect(self.close)
 
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         button_layout.addWidget(self.capture_button)
         button_layout.addSpacing(24)
-        button_layout.addWidget(self.exit_button)
+        button_layout.addWidget(self.back_button)
+        # button_layout.addWidget(self.exit_button)
         button_layout.addStretch()
 
         layout = QVBoxLayout()
@@ -269,6 +274,11 @@ class CameraWindow(QMainWindow):
         self.camera_worker.start_capture_session()
         self.pages.setCurrentWidget(self.camera_page)
 
+    def cancel_capture_session(self) -> None:
+        self.camera_worker.stop_capture_session()
+        self.pending_print_job = None
+        self._return_to_start("ボタンを押すと、認識と撮影を開始します")
+
     def capture(self) -> None:
         if self.camera_worker.is_alive():
             self.camera_worker.request_capture()
@@ -308,7 +318,7 @@ class CameraWindow(QMainWindow):
 
     def update_preview(self) -> None:
         completed_capture = self.camera_worker.consume_completed_capture()
-        if completed_capture is not None:
+        if completed_capture is not None and self.pages.currentWidget() is self.camera_page:
             self.show_capture_review(completed_capture)
             return
 

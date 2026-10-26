@@ -329,6 +329,7 @@ class CameraDetectionWorker(threading.Thread):
         self.error: BaseException | None = None
         self.capture_requested = threading.Event()
         self.start_session_requested = threading.Event()
+        self.stop_session_requested = threading.Event()
         self.processing_enabled = threading.Event()
         if not start_paused:
             self.processing_enabled.set()
@@ -361,6 +362,14 @@ class CameraDetectionWorker(threading.Thread):
         """GUIから新しい認識・撮影セッションの開始を要求する。"""
         if self.session_controlled:
             self.start_session_requested.set()
+
+    def stop_capture_session(self) -> None:
+        """GUIから現在のセッションを中止する（カメラ自体は維持する）。"""
+        if self.session_controlled:
+            self.start_session_requested.clear()
+            self.stop_session_requested.set()
+            self.processing_enabled.clear()
+            self.capture_requested.clear()
 
     def consume_completed_capture(self) -> PrintJob | None:
         """保存済み画像をGUIへ一度だけ通知する。"""
@@ -407,7 +416,7 @@ class CameraDetectionWorker(threading.Thread):
 
                 if self.start_session_requested.is_set():
                     self._begin_capture_session()
-                if not self.processing_enabled.is_set():
+                if self.stop_session_requested.is_set() or not self.processing_enabled.is_set():
                     continue
 
                 display_frame, raw_frame = self.process_frame(captured_frame)
@@ -438,6 +447,9 @@ class CameraDetectionWorker(threading.Thread):
     def _begin_capture_session(self) -> None:
         """カメラスレッド上で前回の認識状態を消してセッションを開始する。"""
         self.start_session_requested.clear()
+        self.stop_session_requested.clear()
+        while self.consume_completed_capture() is not None:
+            pass
         self.capture_requested.clear()
         self.tracker = PersonTracker()
         self.saved_ids.clear()
@@ -520,6 +532,8 @@ class CameraDetectionWorker(threading.Thread):
 
     def _handle_saved_capture(self, image_path: Path, person_ids: set[int]) -> None:
         """GUIには確認用ジョブを渡し、それ以外では直ちに印刷要求を送る。"""
+        if self.session_controlled and self.stop_session_requested.is_set():
+            return
         job = PrintJob(
             image_path=image_path,
             created_at=datetime.now(),
