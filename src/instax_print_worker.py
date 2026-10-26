@@ -3,7 +3,7 @@ import sys
 import threading
 from io import BytesIO
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 
 from PIL import Image, ImageOps
 
@@ -28,6 +28,8 @@ from InstaxBLE.InstaxBLE import InstaxBLE
 class InstaxPrintWorker(threading.Thread):
     """印刷要求を順番に処理し、Instaxプリンターへ送信する。"""
 
+    CONNECTION_CHECK_INTERVAL = 5.0
+
     def __init__(
         self,
         print_queue: Queue[PrintJob | None],
@@ -44,6 +46,12 @@ class InstaxPrintWorker(threading.Thread):
         self.verbose = verbose
         self.instax: InstaxBLE | None = None
         self.error: Exception | None = None
+        self._connected = threading.Event()
+
+    @property
+    def is_connected(self) -> bool:
+        """ワーカーが最後に確認した接続状態（GUIから安全に参照可能）。"""
+        return self._connected.is_set()
 
     @staticmethod
     def prepare_image_for_instax(
@@ -82,7 +90,17 @@ class InstaxPrintWorker(threading.Thread):
     def run(self) -> None:
         try:
             while True:
-                job = self.print_queue.get()
+                try:
+                    job = self.print_queue.get(timeout=self.CONNECTION_CHECK_INTERVAL)
+                except Empty:
+                    # Bluetooth操作は印刷と同じスレッドで行い、競合を避ける。
+                    try:
+                        self._ensure_connected(timeout=self.connect_timeout or 10)
+                    except Exception as error:
+                        self.error = error
+                        print(f"Instax接続の監視・再接続に失敗しました: {type(error).__name__}: {error}")
+                        self._disconnect()
+                    continue
                 try:
                     if job is None:
                         return
@@ -105,14 +123,15 @@ class InstaxPrintWorker(threading.Thread):
 
         instax = self._ensure_connected()
         prepared_image = self.prepare_image_for_instax(job.image_path, instax.imageSize)
-        # instax.print_image(prepared_image)
+        instax.print_image(prepared_image)
         # instax.wait_one_minute()
         instax.wait_thirty_seconds()
         print(f"Instax印刷データを送信しました: {job.image_path}")
 
-    def _ensure_connected(self) -> InstaxBLE:
+    def _ensure_connected(self, timeout: int | None = None) -> InstaxBLE:
         if self._is_connected():
             assert self.instax is not None
+            self._connected.set()
             return self.instax
 
         self._disconnect()
@@ -126,11 +145,12 @@ class InstaxPrintWorker(threading.Thread):
         except SystemExit as error:
             raise RuntimeError("Bluetoothアダプターが見つかりません。") from error
 
-        self.instax.connect(timeout=self.connect_timeout)
+        self.instax.connect(timeout=self.connect_timeout if timeout is None else timeout)
         if not self._is_connected():
             raise ConnectionError("Instaxプリンターへ接続できませんでした。")
 
         self.instax.enable_printing()
+        self._connected.set()
         print("Instaxプリンターへ接続しました")
         return self.instax
 
@@ -142,6 +162,7 @@ class InstaxPrintWorker(threading.Thread):
         )
 
     def _disconnect(self) -> None:
+        self._connected.clear()
         if self.instax is None:
             return
         try:

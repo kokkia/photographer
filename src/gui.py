@@ -93,6 +93,13 @@ class CameraWindow(QMainWindow):
         self.pages.addWidget(self.review_page)
         self.setCentralWidget(self.pages)
 
+        self.bluetooth_status = QLabel("Bluetooth: 未接続")
+        self.bluetooth_status.setStyleSheet("font-size: 12px; color: #777; padding: 2px 6px;")
+        self.bluetooth_status.setToolTip("Instaxプリンターの接続状態（待機中は5秒ごとに確認）")
+        self.statusBar().setSizeGripEnabled(False)
+        self.statusBar().addWidget(self.bluetooth_status)
+        self._bluetooth_connected = False
+
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.update_preview)
         self.frame_timer.start(30)
@@ -317,6 +324,13 @@ class CameraWindow(QMainWindow):
         self.start_status.setText(message)
 
     def update_preview(self) -> None:
+        connected = self.instax_worker.is_connected
+        if connected != self._bluetooth_connected:
+            self._bluetooth_connected = connected
+            self.bluetooth_status.setText("Bluetooth: 接続済み" if connected else "Bluetooth: 未接続")
+            color = "#26834a" if connected else "#777"
+            self.bluetooth_status.setStyleSheet(f"font-size: 12px; color: {color}; padding: 2px 6px;")
+
         completed_capture = self.camera_worker.consume_completed_capture()
         if completed_capture is not None and self.pages.currentWidget() is self.camera_page:
             self.show_capture_review(completed_capture)

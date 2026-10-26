@@ -303,7 +303,7 @@ class InstaxBLE:
                     (self.deviceName and foundName.startswith(self.deviceName)) or
                     (self.deviceAddress and foundAddress == self.deviceAddress) or
                     (self.deviceName is None and self.deviceAddress is None and
-                     foundName.startswith('INSTAX-') and foundName.endswith('(IOS)'))
+                     foundName.startswith('INSTAX-') and foundName.endswith(('(IOS)', '(BLE)')))
                 )
                 if not matches:
                     continue
