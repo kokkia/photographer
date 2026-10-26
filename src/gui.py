@@ -93,12 +93,13 @@ class CameraWindow(QMainWindow):
         self.pages.addWidget(self.review_page)
         self.setCentralWidget(self.pages)
 
-        self.bluetooth_status = QLabel("Bluetooth: 未接続")
+        self.bluetooth_status = QLabel("Bluetooth: 未接続  |  残り: --枚")
         self.bluetooth_status.setStyleSheet("font-size: 12px; color: #777; padding: 2px 6px;")
-        self.bluetooth_status.setToolTip("Instaxプリンターの接続状態（待機中は5秒ごとに確認）")
+        self.bluetooth_status.setToolTip("接続状態と最後に取得したフィルム枚数（待機中は5秒ごとに確認）")
         self.statusBar().setSizeGripEnabled(False)
         self.statusBar().addWidget(self.bluetooth_status)
         self._bluetooth_connected = False
+        self._remaining_photos = None
 
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.update_preview)
@@ -325,9 +326,13 @@ class CameraWindow(QMainWindow):
 
     def update_preview(self) -> None:
         connected = self.instax_worker.is_connected
-        if connected != self._bluetooth_connected:
+        remaining = self.instax_worker.remaining_photos if connected else None
+        if connected != self._bluetooth_connected or remaining != self._remaining_photos:
             self._bluetooth_connected = connected
-            self.bluetooth_status.setText("Bluetooth: 接続済み" if connected else "Bluetooth: 未接続")
+            self._remaining_photos = remaining
+            connection_text = "接続済み" if connected else "未接続"
+            remaining_text = "--" if remaining is None else str(remaining)
+            self.bluetooth_status.setText(f"Bluetooth: {connection_text}  |  残り: {remaining_text}枚")
             color = "#26834a" if connected else "#777"
             self.bluetooth_status.setStyleSheet(f"font-size: 12px; color: {color}; padding: 2px 6px;")
 

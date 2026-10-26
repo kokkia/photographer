@@ -53,6 +53,14 @@ class InstaxPrintWorker(threading.Thread):
         """ワーカーが最後に確認した接続状態（GUIから安全に参照可能）。"""
         return self._connected.is_set()
 
+    @property
+    def remaining_photos(self) -> int | None:
+        """最後に受信した残り枚数。未取得・切断時はNone。通信は行わない。"""
+        instax = self.instax
+        if not self.is_connected or instax is None:
+            return None
+        return instax.remaining_photos
+
     @staticmethod
     def prepare_image_for_instax(
         image_path: Path,
@@ -95,7 +103,10 @@ class InstaxPrintWorker(threading.Thread):
                 except Empty:
                     # Bluetooth操作は印刷と同じスレッドで行い、競合を避ける。
                     try:
-                        self._ensure_connected(timeout=self.connect_timeout or 10)
+                        instax = self._ensure_connected(timeout=self.connect_timeout or 10)
+                        # 印刷データ送信中や応答待ちには問い合わせを重ねない。
+                        if not instax.packetsForPrinting and not instax.waitingForResponse:
+                            instax.get_printer_status()
                     except Exception as error:
                         self.error = error
                         print(f"Instax接続の監視・再接続に失敗しました: {type(error).__name__}: {error}")

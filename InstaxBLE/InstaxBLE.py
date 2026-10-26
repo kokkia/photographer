@@ -59,6 +59,7 @@ class InstaxBLE:
         self.batteryState = 0
         self.batteryPercentage = 0
         self.photosLeft = 0
+        self.remaining_photos = None
         self.isCharging = False
         self.imageSize = (PrinterSettings['mini']['width'], PrinterSettings['mini']['height']) if self.dummyPrinter else (0, 0)
         self.waitingForResponse = False
@@ -140,6 +141,7 @@ class InstaxBLE:
             elif infoType == InfoType.PRINTER_FUNCTION_INFO:
                 dataByte = packet[8]
                 self.photosLeft = dataByte & 15
+                self.remaining_photos = self.photosLeft
                 self.isCharging = (1 << 7) & dataByte >= 1
                 # self.log(f'photos left: {self.photosLeft}')
                 # if self.isCharging:
