@@ -2,29 +2,19 @@
 
 ノートPCのカメラ映像から、人物・顔・ピースサインをリアルタイムで検出するOpenCVアプリです。
 
-## 環境構築 (apt)
+## 環境構築 (camera)
 ```bash
 sudo apt install vlc v4l-utils cheese
 v4l2-ctl --list-devices # check camera num
 cheese # camera test
 ```
 
-
-## 環境構築 (venv)
-
-プロジェクトのルートディレクトリで、Pythonの仮想環境を作成します。
+## 環境構築 (touch screen)
 
 ```bash
-python3 -m venv camera_env
-source camera_env/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-仮想環境を終了するときは、次を実行します。
-
-```bash
-deactivate
+xrandr --listmonitors # check display name
+xinput list # check touch display id
+xinput map-to-output "タッチパネルのデバイス名" ディスプレイ名
 ```
 
 ## 環境構築 (conda)
