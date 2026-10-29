@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=photographer
+Exec=bash -i -c "cd /home/$USER/k-ws/photographer/script && ./run_photographer.sh; echo ''; read -p 'プログラムが終了しました。Enterキーで閉じます...'"
+Icon=utilities-terminal
+Terminal=true
+Type=Application
