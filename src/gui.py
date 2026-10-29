@@ -7,7 +7,7 @@ from queue import Queue
 
 import cv2
 from PySide6.QtCore import QLibraryInfo, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QImage, QPixmap
+from PySide6.QtGui import QCloseEvent, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -92,6 +92,12 @@ class CameraWindow(QMainWindow):
         self.pages.addWidget(self.camera_page)
         self.pages.addWidget(self.review_page)
         self.setCentralWidget(self.pages)
+
+        for key in ("Q", "Esc"):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(self.close)
 
         self.bluetooth_status = QLabel("Bluetooth: 未接続  |  残り: --枚")
         self.bluetooth_status.setStyleSheet("font-size: 12px; color: #777; padding: 2px 6px;")
