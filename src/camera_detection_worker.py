@@ -465,7 +465,7 @@ class CameraDetectionWorker(threading.Thread):
         self.processing_enabled.set()
 
     def process_frame(self, captured_frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if self.settings.camera_index == "/dev/camera_front":
+        if self.settings.camera_index == "/dev/camera_front" or self.settings.camera_index == "/dev/video0":
             captured_frame = cv2.rotate(captured_frame, cv2.ROTATE_90_CLOCKWISE)
         captured_frame = crop_to_4_3(captured_frame)
         frame = cv2.flip(captured_frame, 1)
