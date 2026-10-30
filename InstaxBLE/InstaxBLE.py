@@ -163,7 +163,9 @@ class InstaxBLE:
 
         elif event == EventType.PRINT_IMAGE:
             self.log('received print confirmation')
-            pass
+            # 印刷命令の後にも残り枚数の問い合わせがキューに残っている。
+            # ここで進めないと、ワーカーが送信中と判断し続け、定期取得も止まる。
+            self.handle_image_packet_queue()
 
         else:
             self.log(f'Uncaught response from printer. Eventype: {event}')
@@ -472,7 +474,10 @@ class InstaxBLE:
 
         if self.printEnabled:
             self.packetsForPrinting.append(self.create_packet(EventType.PRINT_IMAGE))
-            self.packetsForPrinting.append(self.create_packet((0, 2), b'\x02'))
+            self.packetsForPrinting.append(self.create_packet(
+                EventType.SUPPORT_FUNCTION_INFO,
+                bytes([InfoType.PRINTER_FUNCTION_INFO.value]),
+            ))
         elif not self.quiet:
             self.log("Printing is disabled, sending all packets except the actual print command")
 
