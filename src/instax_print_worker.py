@@ -4,6 +4,7 @@ import threading
 from io import BytesIO
 from pathlib import Path
 from queue import Empty, Queue
+from time import monotonic
 
 from PIL import Image, ImageOps
 
@@ -132,12 +133,18 @@ class InstaxPrintWorker(threading.Thread):
         print(f"  created_at: {job.created_at.isoformat(timespec='milliseconds')}")
         print(f"  person_ids: {job.person_ids}")
 
+        started_at = monotonic()
         instax = self._ensure_connected()
+        connected_at = monotonic()
+        print(f"Instax接続確認: {connected_at - started_at:.2f}秒")
         prepared_image = self.prepare_image_for_instax(job.image_path, instax.imageSize)
+        prepared_at = monotonic()
+        print(f"Instax画像準備: {prepared_at - connected_at:.2f}秒")
         instax.print_image(prepared_image)
-        # instax.wait_one_minute()
-        instax.wait_thirty_seconds()
-        print(f"Instax印刷データを送信しました: {job.image_path}")
+        print(f"Instax転送開始まで: {monotonic() - started_at:.2f}秒（転送は通知スレッドで継続）")
+        # 固定待機は次のジョブを抑制するためのもの。現在の転送・印刷は並行して進む。
+        instax.wait_five_seconds()
+        print(f"Instax転送開始後の5秒待機が終了しました: {job.image_path}")
 
     def _ensure_connected(self, timeout: int | None = None) -> InstaxBLE:
         if self._is_connected():

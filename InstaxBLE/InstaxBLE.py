@@ -4,7 +4,7 @@ from math import ceil
 from queue import Queue
 from struct import pack, unpack_from
 from threading import Thread
-from time import sleep
+from time import monotonic, sleep
 
 # Try to import Types with a relative import first
 try:
@@ -64,6 +64,7 @@ class InstaxBLE:
         self.imageSize = (PrinterSettings['mini']['width'], PrinterSettings['mini']['height']) if self.dummyPrinter else (0, 0)
         self.waitingForResponse = False
         self.cancelled = False
+        self._transfer_timing = None
         self.notificationQueue = Queue()
         self.notificationWorker = Thread(
             target=self._notification_worker,
@@ -156,6 +157,10 @@ class InstaxBLE:
             self.handle_image_packet_queue()
 
         elif event == EventType.PRINT_IMAGE_DOWNLOAD_END:
+            started_at = getattr(self, '_print_started_at', None)
+            if started_at is not None:
+                self.log(f'Instax画像転送の完了応答: 開始から{monotonic() - started_at:.2f}秒')
+            self._log_transfer_timing()
             self.handle_image_packet_queue()
 
         elif event == EventType.PRINT_IMAGE_DOWNLOAD_CANCEL:
@@ -163,6 +168,9 @@ class InstaxBLE:
 
         elif event == EventType.PRINT_IMAGE:
             self.log('received print confirmation')
+            started_at = getattr(self, '_print_started_at', None)
+            if started_at is not None:
+                self.log(f'Instax印刷命令の応答: 開始から{monotonic() - started_at:.2f}秒')
             # 印刷命令の後にも残り枚数の問い合わせがキューに残っている。
             # ここで進めないと、ワーカーが送信中と判断し続け、定期取得も止まる。
             self.handle_image_packet_queue()
@@ -179,24 +187,26 @@ class InstaxBLE:
 
     def notification_handler(self, packet):
         """Queue printer replies without making D-Bus calls inside its callback."""
-        self.notificationQueue.put(bytes(packet))
+        received_at = monotonic()
+        self.notificationQueue.put((bytes(packet), received_at))
 
     def _notification_worker(self):
         """Process notifications sequentially outside SimplePyBLE's D-Bus callback."""
         while True:
-            packet = self.notificationQueue.get()
+            packet, received_at = self.notificationQueue.get()
             try:
                 # Let the native callback return before issuing another D-Bus call.
                 sleep(0.01)
-                self._process_notification(packet)
+                self._process_notification(packet, received_at)
             except Exception as e:
                 self.waitingForResponse = False
                 self.log(f'Error while processing notification: {type(e).__name__}: {e}')
             finally:
                 self.notificationQueue.task_done()
 
-    def _process_notification(self, packet):
+    def _process_notification(self, packet, received_at=None):
         """Parse a queued printer reply and advance the print packet queue."""
+        handled_at = monotonic()
         # self.log('Notification handler:')
         # self.log(f'\t{self.prettify_bytearray(packet[:40])}')
         if not self.quiet:
@@ -220,7 +230,38 @@ class InstaxBLE:
             self.log(f"Unknown EventType: ({op1}, {op2})")
             return
 
+        timing = getattr(self, '_transfer_timing', None)
+        if timing is not None:
+            for record in reversed(timing['packets']):
+                if record['event'] == event and record['received_at'] is None:
+                    record['received_at'] = handled_at if received_at is None else received_at
+                    record['handled_at'] = handled_at
+                    break
         self.parse_printer_response(event, packet)
+
+    def _log_transfer_timing(self):
+        """送信と応答の時刻を集計する。プリンターへの追加通信は行わない。"""
+        timing = getattr(self, '_transfer_timing', None)
+        if timing is None:
+            return
+        records = timing['packets']
+        completed = [r for r in records if r['received_at'] is not None and r['write_finished'] is not None]
+        if not completed:
+            return
+        total = completed[-1]['handled_at'] - timing['started_at']
+        preparation = sum(r['preparation'] for r in records)
+        writing = sum(r['write_seconds'] for r in records)
+        writes = sum(r['writes'] for r in records)
+        waits = [max(0, r['received_at'] - r['write_finished']) for r in completed]
+        dispatch = sum(r['handled_at'] - r['received_at'] for r in completed)
+        other = max(0, total - preparation - writing - sum(waits) - dispatch)
+        self.log(f'Instax転送内訳: {total:.2f}秒 / {len(records)} packets / {writes} BLE writes')
+        self.log(f'  送信前処理・接続確認・送信待ち: {preparation:.2f}秒')
+        self.log(f'  BLE書き込み呼び出し: {writing:.2f}秒（平均{writing / max(1, writes) * 1000:.1f}ms/回）')
+        self.log(f'  最終書き込み後から応答受信まで: {sum(waits):.2f}秒（平均{sum(waits) / len(waits) * 1000:.1f}ms、最大{max(waits) * 1000:.1f}ms）')
+        self.log(f'  応答受信から処理開始まで: {dispatch:.2f}秒（通知キュー・10ms待機を含む）')
+        self.log(f'  その他の処理: {other:.2f}秒')
+        self._transfer_timing = None
 
     def connect(self, timeout=0):
         """ Connect to the printer. Stops trying after <timeout> seconds. """
@@ -396,6 +437,7 @@ class InstaxBLE:
 
     def send_packet(self, packet):
         """ Send a packet to the printer """
+        entered_at = monotonic()
         if not self.dummyPrinter:
             if not self.peripheral:
                 self.log("no peripheral to send packet to")
@@ -418,15 +460,38 @@ class InstaxBLE:
             # self.log(f'sending eventtype: {event}')
 
             self.waitingForResponse = True
+            if event == EventType.PRINT_IMAGE:
+                started_at = getattr(self, '_print_started_at', None)
+                if started_at is not None:
+                    self.log(f'Instax印刷命令の送信: 開始から{monotonic() - started_at:.2f}秒')
             smallPacketSize = 182
             numberOfParts = ceil(len(packet) / smallPacketSize)
+            timing = getattr(self, '_transfer_timing', None)
+            record = None
+            if timing is not None and event in (
+                EventType.PRINT_IMAGE_DOWNLOAD_START,
+                EventType.PRINT_IMAGE_DOWNLOAD_DATA,
+                EventType.PRINT_IMAGE_DOWNLOAD_END,
+            ):
+                record = {
+                    'event': event, 'preparation': monotonic() - entered_at,
+                    'write_seconds': 0.0, 'writes': 0, 'write_finished': None,
+                    'received_at': None, 'handled_at': None,
+                }
+                timing['packets'].append(record)
             # self.log(f"> number of parts to send: {numberOfParts}")
             for subPartIndex in range(numberOfParts):
                 # self.log((subPartIndex + 1), '/', numberOfParts)
                 subPacket = packet[subPartIndex * smallPacketSize:subPartIndex * smallPacketSize + smallPacketSize]
 
                 if not self.dummyPrinter:
+                    write_started = monotonic()
                     self.peripheral.write_command(self.serviceUUID, self.writeCharUUID, subPacket)
+                    if record is not None:
+                        write_finished = monotonic()
+                        record['write_seconds'] += write_finished - write_started
+                        record['writes'] += 1
+                        record['write_finished'] = write_finished
 
         except KeyboardInterrupt:
             self.cancelled = True
@@ -445,14 +510,15 @@ class InstaxBLE:
             self.log("Can't print: no photos left")
             return
 
+        self._print_started_at = monotonic()
         imgData = imgSrc
         if isinstance(imgSrc, str):  # if it's a path, load the image contents
             image = Image.open(imgSrc)
-            imgData = self.pil_image_to_bytes(image, max_size_kb=105)
+            imgData = self.pil_image_to_bytes(image, max_size_kb=30)
         elif isinstance(imgSrc, BytesIO):
             imgSrc.seek(0)  # Go to the start of the BytesIO object
             image = Image.open(imgSrc)
-            imgData = self.pil_image_to_bytes(image, max_size_kb=105)
+            imgData = self.pil_image_to_bytes(image, max_size_kb=30)
 
         # self.log(f"len of imagedata: {len(imgData)}")
         self.packetsForPrinting = [
@@ -462,6 +528,10 @@ class InstaxBLE:
 
         # divide image data up into chunks of <chunkSize> bytes and pad the last chunk with zeroes if needed
         imgDataChunks = [imgData[i:i + self.chunkSize] for i in range(0, len(imgData), self.chunkSize)]
+        self.log(
+            f'Instax転送データ: {len(imgData)} bytes / {len(imgDataChunks)} chunks; '
+            f'JPEG準備: {monotonic() - self._print_started_at:.2f}秒'
+        )
         if len(imgDataChunks[-1]) < self.chunkSize:
             imgDataChunks[-1] = imgDataChunks[-1] + bytes(self.chunkSize - len(imgDataChunks[-1]))
 
@@ -487,6 +557,9 @@ class InstaxBLE:
         # send the first packet from our list, the packet handler will take care of the rest
         if not self.dummyPrinter:
             packet = self.packetsForPrinting.pop(0)
+            self._transfer_timing = (
+                {'started_at': monotonic(), 'packets': []} if self.verbose else None
+            )
             self.send_packet(packet)
             # try:
             #     while len(self.packetsForPrinting) > 0:
@@ -584,10 +657,10 @@ class InstaxBLE:
             print("Waiting for one minute...")
         sleep(60)
 
-    def wait_thirty_seconds(self):
+    def wait_five_seconds(self):
         if not self.quiet:
-            print("Waiting for 30 seconds...")
-        sleep(30)
+            print("Waiting for 5 seconds...")
+        sleep(5)
 
 
 def main(args={}):
