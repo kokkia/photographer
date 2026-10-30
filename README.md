@@ -54,15 +54,10 @@ curl -fL \
 
 ## 実行方法
 
+1. instax miniの電源を入れる
+2. ソフトウェアを起動
 ```bash
-source camera_env/bin/activate
-```
-
-Qt GUIは次のコマンドで起動します。
-
-```bash
-conda activate camera310
-python -m src.gui --instax-address FA:AB:BC:XX:XX:XX
+bash run_photographer.sh
 ```
 
 GUIはスタート画面から始まり、開始ボタンを押すと認識・撮影画面へ移ります。
@@ -73,18 +68,6 @@ GUIはスタート画面から始まり、開始ボタンを押すと認識・�
 
 ```bash
 python -m src.gui --start-image path/to/start-image.jpg
-```
-
-起動スクリプトを使用すると、`camera310` の有効化とプロジェクトディレクトリへの移動も自動で行われます。
-
-```bash
-./script/run_photographer.sh --instax-address FA:AB:BC:XX:XX:XX
-```
-
-別名のConda環境を使う場合は、`PHOTOGRAPHER_CONDA_ENV` で指定できます。
-
-```bash
-PHOTOGRAPHER_CONDA_ENV=my-camera-env ./script/run_photographer.sh
 ```
 
 `--instax-address` を省略すると、名前が `INSTAX-` で始まるプリンターを自動検索します。
