@@ -76,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         help="Instax通信の詳細ログを表示",
     )
     parser.add_argument(
+        "--no-print",
+        action="store_true",
+        help="実際の印刷命令を送信しない（接続・画像転送は実行）",
+    )
+    parser.add_argument(
         "--start-image",
         type=Path,
         help="GUIのスタート画面に表示する画像",
@@ -105,6 +110,7 @@ def main() -> None:
         device_address=args.instax_address,
         connect_timeout=args.instax_connect_timeout,
         verbose=args.instax_verbose,
+        print_enabled=not args.no_print,
     )
 
     instax_worker.start()

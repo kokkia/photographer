@@ -484,6 +484,7 @@ def main() -> int:
         device_address=args.instax_address,
         connect_timeout=args.instax_connect_timeout,
         verbose=args.instax_verbose,
+        print_enabled=not args.no_print,
     )
     window = CameraWindow(
         camera_worker,

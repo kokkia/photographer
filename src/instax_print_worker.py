@@ -37,6 +37,7 @@ class InstaxPrintWorker(threading.Thread):
         device_address: str | None = None,
         connect_timeout: int = 10,
         verbose: bool = False,
+        print_enabled: bool = True,
     ) -> None:
         super().__init__(name="instax-print-worker")
         self.print_queue = print_queue
@@ -45,6 +46,7 @@ class InstaxPrintWorker(threading.Thread):
             raise ValueError("Instaxの接続タイムアウトは0以上にしてください。")
         self.connect_timeout = connect_timeout
         self.verbose = verbose
+        self.print_enabled = print_enabled
         self.instax: InstaxBLE | None = None
         self.error: Exception | None = None
         self._connected = threading.Event()
@@ -167,7 +169,10 @@ class InstaxPrintWorker(threading.Thread):
         if not self._is_connected():
             raise ConnectionError("Instaxプリンターへ接続できませんでした。")
 
-        self.instax.enable_printing()
+        if self.print_enabled:
+            self.instax.enable_printing()
+        else:
+            print("Instaxの実印刷は無効です（ドライラン）")
         self._connected.set()
         print("Instaxプリンターへ接続しました")
         return self.instax
