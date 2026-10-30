@@ -6,8 +6,11 @@ from pathlib import Path
 from queue import Queue
 
 import cv2
-from PySide6.QtCore import QLibraryInfo, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QLibraryInfo, QRectF, Qt, QTimer
+from PySide6.QtGui import (
+    QCloseEvent, QColor, QImage, QImageReader, QKeySequence,
+    QLinearGradient, QPainter, QPixmap, QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -33,8 +36,57 @@ else:  # python src/gui.py で直接実行する場合
 
 
 _xcb_cursor_library = None
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_START_IMAGE = ROOT_DIR / "assets" / "start_screen.jpg"
+NATURAL_STYLE = """
+QMainWindow, QStackedWidget, QWidget#page { background: #fbf7f2; }
+QWidget {
+    color: #6c5547;
+    font-family: "Noto Sans CJK JP", "Yu Gothic", sans-serif;
+    font-size: 16px; font-weight: 300;
+}
+QLabel { background: transparent; }
+QLabel#boothTitle {
+    font-family: "Noto Serif CJK JP", "Yu Mincho", "Georgia", serif;
+    color: #625044; font-size: 50px; font-weight: 300;
+}
+QLabel#coverIntro { color: #725e50; font-size: 15px; }
+QLabel#coverStatus {
+    color: #625044; background: rgba(255, 250, 244, 225);
+    border-radius: 6px; padding: 10px 14px; font-size: 14px;
+}
+QPushButton#coverButton {
+    background: rgba(255, 250, 244, 235); color: #6c5547;
+    border: 1px solid #c7b6a4; border-radius: 8px;
+}
+QPushButton#coverButton:hover { background: #fffaf4; border-color: #987d68; }
+QPushButton#coverButton:pressed { background: #e9dfd4; }
+QPushButton#coverButton:focus { border: 2px solid #987d68; }
+QPushButton#coverButton:disabled { background: #e9dfd4; color: #a89583; }
+QLabel#title {
+    font-family: "Noto Serif CJK JP", "Yu Mincho", serif;
+    font-size: 28px; font-weight: 300;
+}
+QLabel#intro { color: #8d7868; font-size: 18px; }
+QLabel#status { color: #8d7868; font-size: 14px; padding: 4px 0; }
+QLabel#image {
+    background: #fffcf8; color: #8d7868;
+    border: 1px solid #ead8cd; border-radius: 4px; padding: 8px;
+}
+QPushButton {
+    background: #80624e; color: #fffaf4; border: 1px solid #80624e;
+    border-radius: 6px; padding: 14px 20px; font-size: 18px; font-weight: 400;
+}
+QPushButton:hover { background: #71533f; border-color: #71533f; }
+QPushButton:pressed { background: #614531; border-color: #614531; }
+QPushButton:focus { border: 2px solid #cba99a; }
+QPushButton[secondary="true"] { background: #fcf5ef; color: #7b604c; border-color: #ddc5b7; }
+QPushButton[secondary="true"]:hover { background: #f5e7df; }
+QPushButton[secondary="true"]:pressed { background: #ebd5ca; }
+QPushButton:disabled { background: #e9dfd4; color: #a89583; border-color: #e9dfd4; }
+QStatusBar { background: #f4ece3; border-top: 1px solid #e9dbcc; }
+QStatusBar::item { border: none; }
+QLabel#bluetoothStatus { font-size: 14px; color: #8d7868; padding: 4px 16px; }
+QLabel#bluetoothStatus[connected="true"] { color: #78614e; }
+"""
 
 
 def configure_qt_runtime() -> None:
@@ -55,6 +107,34 @@ def configure_qt_runtime() -> None:
 configure_qt_runtime()
 
 
+class PhotoCoverPage(QWidget):
+    """写真の縦横比を保ち、画面の中央を基準に背景いっぱいに描く。"""
+
+    def __init__(self, pixmap: QPixmap) -> None:
+        super().__init__()
+        self.pixmap = pixmap
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#fbf7f2"))
+        if self.pixmap.isNull():
+            return
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        scale = max(self.width() / self.pixmap.width(), self.height() / self.pixmap.height())
+        width, height = self.width() / scale, self.height() / scale
+        source = QRectF(
+            (self.pixmap.width() - width) / 2,
+            (self.pixmap.height() - height) / 2,
+            width, height,
+        )
+        painter.drawPixmap(QRectF(self.rect()), self.pixmap, source)
+        # 空の明るさをわずかに整え、文字の読みやすさを保つ。
+        wash = QLinearGradient(0, 0, 0, self.height() * 0.5)
+        wash.setColorAt(0, QColor(255, 250, 244, 65))
+        wash.setColorAt(1, QColor(255, 250, 244, 0))
+        painter.fillRect(self.rect(), wash)
+
+
 class CameraWindow(QMainWindow):
     """スタート画面と認識・撮影画面を提供するメインウィンドウ。"""
 
@@ -73,15 +153,16 @@ class CameraWindow(QMainWindow):
         self.stop_event = stop_event
         self.shutting_down = False
         self.worker_error_shown = False
-        self.start_image_path = start_image_path or DEFAULT_START_IMAGE
+        self.start_image_path = start_image_path or Path(__file__).with_name("wedding.JPG")
         self.start_image_pixmap = QPixmap()
         self.review_pixmap = QPixmap()
         self.pending_print_job: PrintJob | None = None
 
         self.setWindowTitle("Photographer")
-        # self.resize(1100, 850)
         self.resize(600, 1024)
-        self.min_image_height = 480
+        self.setMinimumSize(540, 800)
+        self.setStyleSheet(NATURAL_STYLE)
+        self.min_image_height = 360
         self.min_image_width = 360
 
         self.pages = QStackedWidget()
@@ -100,10 +181,12 @@ class CameraWindow(QMainWindow):
             shortcut.activated.connect(self.close)
 
         self.bluetooth_status = QLabel("Bluetooth: 未接続  |  残り: --枚")
-        self.bluetooth_status.setStyleSheet("font-size: 12px; color: #777; padding: 2px 6px;")
+        self.bluetooth_status.setObjectName("bluetoothStatus")
+        self.bluetooth_status.setProperty("connected", False)
         self.bluetooth_status.setToolTip("接続状態と最後に取得したフィルム枚数（待機中は5秒ごとに確認）")
         self.statusBar().setSizeGripEnabled(False)
-        self.statusBar().addWidget(self.bluetooth_status)
+        self.statusBar().setFixedHeight(44)
+        self.statusBar().addPermanentWidget(self.bluetooth_status, 1)
         self._bluetooth_connected = False
         self._remaining_photos = None
 
@@ -112,161 +195,140 @@ class CameraWindow(QMainWindow):
         self.frame_timer.start(30)
 
     def _create_start_page(self) -> QWidget:
-        self.start_image = QLabel()
-        self.start_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # self.start_image.setMinimumSize(640, 480)
-        self.start_image.setMinimumSize(self.min_image_height, self.min_image_width)
-        self.start_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.start_image.setStyleSheet(
-            "background-color: #f3f0ea; color: #777; font-size: 18px; "
-            "border: 2px dashed #c8c0b4; border-radius: 12px;"
-        )
         self._load_start_image()
+        page = PhotoCoverPage(self.start_image_pixmap)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(36, 100, 36, 20)
+        layout.setSpacing(0)
 
-        self.start_status = QLabel("ボタンを押すと、認識と撮影を開始します")
-        self.start_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.start_status.setStyleSheet("font-size: 18px;")
+        title = QLabel("Photo Booth")
+        title.setObjectName("boothTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setMinimumHeight(76)
+        layout.addWidget(title)
+        layout.addSpacing(8)
 
-        self.start_button = QPushButton("認識・撮影をスタート")
-        self.start_button.setMinimumSize(260, 64)
-        self.start_button.setStyleSheet("font-size: 20px; font-weight: bold;")
+        intro = QLabel("今日の思い出を一枚に")
+        intro.setObjectName("coverIntro")
+        intro.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(intro)
+
+        layout.addStretch(1)
+
+        self.start_button = QPushButton("撮影をはじめる")
+        self.start_button.setObjectName("coverButton")
+        self.start_button.setMinimumSize(300, 64)
         self.start_button.clicked.connect(self.start_capture_session)
+        layout.addWidget(self.start_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(20)
 
-        # start_exit_button = QPushButton("終了")
-        # start_exit_button.setMinimumSize(140, 52)
-        # start_exit_button.clicked.connect(self.close)
-
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(self.start_button)
-        # button_layout.addSpacing(20)
-        # button_layout.addWidget(start_exit_button)
-        button_layout.addStretch()
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.addWidget(self.start_image, 1)
-        layout.addSpacing(12)
+        # 通常は空欄にし、印刷開始やエラーなど必要な通知だけを表示する。
+        self.start_status = QLabel("")
+        self.start_status.setObjectName("coverStatus")
+        self.start_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.start_status.setWordWrap(True)
+        self.start_status.setVisible(False)
         layout.addWidget(self.start_status)
-        layout.addSpacing(12)
-        layout.addLayout(button_layout)
-
-        page = QWidget()
-        page.setLayout(layout)
         return page
 
+    def _create_page_layout(self) -> tuple[QWidget, QVBoxLayout]:
+        page = QWidget()
+        page.setObjectName("page")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 40, 32, 28)
+        layout.setSpacing(16)
+        return page, layout
+
+    def _add_heading(self, layout: QVBoxLayout, title: str, subtitle: str) -> None:
+        for text, name in ((title, "title"), (subtitle, "intro")):
+            label = QLabel(text)
+            label.setObjectName(name)
+            label.setWordWrap(True)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(label)
+
     def _create_camera_page(self) -> QWidget:
+        page, layout = self._create_page_layout()
+        self._add_heading(layout, "笑顔で！はいピース！", "ピースを認識すると自動で撮影します")
         self.preview = QLabel("カメラを起動しています...")
+        self.preview.setObjectName("image")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setMinimumSize(self.min_image_height, self.min_image_width)
+        self.preview.setMinimumSize(self.min_image_width, self.min_image_height)
         self.preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.preview.setStyleSheet("background-color: #111; color: #ddd; font-size: 18px;")
 
         self.status = QLabel("準備中")
+        self.status.setObjectName("status")
+        self.status.setWordWrap(True)
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.capture_button = QPushButton("撮影")
+        self.capture_button = QPushButton("手動で撮影")
         self.capture_button.setMinimumSize(160, 52)
         self.capture_button.clicked.connect(self.capture)
 
         self.back_button = QPushButton("戻る")
+        self.back_button.setProperty("secondary", True)
         self.back_button.setMinimumSize(120, 52)
         self.back_button.clicked.connect(self.cancel_capture_session)
 
-        # self.exit_button = QPushButton("終了")
-        # self.exit_button.setMinimumSize(160, 52)
-        # self.exit_button.clicked.connect(self.close)
-
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(self.capture_button)
-        button_layout.addSpacing(24)
+        button_layout.setSpacing(12)
         button_layout.addWidget(self.back_button)
-        # button_layout.addWidget(self.exit_button)
-        button_layout.addStretch()
+        button_layout.addWidget(self.capture_button, 1)
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(24, 24, 24, 24)
         layout.addWidget(self.preview, 1)
         layout.addWidget(self.status)
         layout.addLayout(button_layout)
-
-        page = QWidget()
-        page.setLayout(layout)
         return page
 
     def _create_review_page(self) -> QWidget:
-        title = QLabel("撮影した写真")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 24px; font-weight: bold;")
+        page, layout = self._create_page_layout()
+        self._add_heading(layout, "お気に入りの一枚をチェキに！", "写真を確認してよろしければ印刷してください")
 
         self.review_image = QLabel("撮影画像を読み込んでいます...")
+        self.review_image.setObjectName("image")
         self.review_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.review_image.setMinimumSize(self.min_image_height, self.min_image_width)
+        self.review_image.setMinimumSize(self.min_image_width, self.min_image_height)
         self.review_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.review_image.setStyleSheet("background-color: #111; color: #ddd; font-size: 18px;")
 
         self.review_status = QLabel("この写真を印刷しますか？")
+        self.review_status.setObjectName("status")
+        self.review_status.setWordWrap(True)
         self.review_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.review_status.setStyleSheet("font-size: 18px;")
 
         print_button = QPushButton("印刷する")
-        print_button.setMinimumSize(200, 60)
-        print_button.setStyleSheet("font-size: 20px; font-weight: bold;")
+        print_button.setMinimumHeight(60)
         print_button.clicked.connect(self.print_captured_photo)
 
-        skip_button = QPushButton("印刷しない")
-        skip_button.setMinimumSize(200, 60)
-        skip_button.setStyleSheet("font-size: 20px;")
+        skip_button = QPushButton("撮り直す")
+        skip_button.setProperty("secondary", True)
+        skip_button.setMinimumHeight(60)
         skip_button.clicked.connect(self.skip_printing)
 
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(print_button)
-        button_layout.addSpacing(24)
-        button_layout.addWidget(skip_button)
-        button_layout.addStretch()
+        button_layout.setSpacing(12)
+        button_layout.addWidget(skip_button, 1)
+        button_layout.addWidget(print_button, 1)
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.addWidget(title)
         layout.addWidget(self.review_image, 1)
         layout.addWidget(self.review_status)
         layout.addLayout(button_layout)
-
-        page = QWidget()
-        page.setLayout(layout)
         return page
 
     def _load_start_image(self) -> None:
-        if self.start_image_path.is_file():
-            self.start_image_pixmap = QPixmap(str(self.start_image_path))
-        if self.start_image_pixmap.isNull():
-            self.start_image.setText(
-                "スタート画面の画像\n\n"
-                f"{self.start_image_path}\n"
-                "に画像を置くか、--start-image で指定してください"
-            )
-            return
-        self._scale_start_image()
+        reader = QImageReader(str(self.start_image_path))
+        reader.setAutoTransform(True)
+        self.start_image_pixmap = QPixmap.fromImage(reader.read())
 
-    def _scale_start_image(self) -> None:
-        if self.start_image_pixmap.isNull():
-            return
-        self.start_image.setPixmap(
-            self.start_image_pixmap.scaled(
-                self.start_image.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
+    def _set_start_status(self, message: str) -> None:
+        self.start_status.setText(message)
+        self.start_status.setVisible(bool(message))
 
     def _scale_review_image(self) -> None:
         if self.review_pixmap.isNull():
             return
         self.review_image.setPixmap(
             self.review_pixmap.scaled(
-                self.review_image.size(),
+                self.review_image.contentsRect().size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -274,24 +336,23 @@ class CameraWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._scale_start_image()
         self._scale_review_image()
 
     def start_capture_session(self) -> None:
         if not self.camera_worker.is_alive():
-            self.start_status.setText("カメラを開始できませんでした")
+            self._set_start_status("カメラを開始できませんでした")
             return
         self.preview.setPixmap(QPixmap())
         self.preview.setText("カメラを準備しています...")
         self.status.setText("準備中")
-        self.start_status.setText("ボタンを押すと、認識と撮影を開始します")
+        self._set_start_status("")
         self.camera_worker.start_capture_session()
         self.pages.setCurrentWidget(self.camera_page)
 
     def cancel_capture_session(self) -> None:
         self.camera_worker.stop_capture_session()
         self.pending_print_job = None
-        self._return_to_start("ボタンを押すと、認識と撮影を開始します")
+        self._return_to_start("")
 
     def capture(self) -> None:
         if self.camera_worker.is_alive():
@@ -328,7 +389,7 @@ class CameraWindow(QMainWindow):
     def _return_to_start(self, message: str) -> None:
         self.review_pixmap = QPixmap()
         self.pages.setCurrentWidget(self.start_page)
-        self.start_status.setText(message)
+        self._set_start_status(message)
 
     def update_preview(self) -> None:
         connected = self.instax_worker.is_connected
@@ -339,8 +400,9 @@ class CameraWindow(QMainWindow):
             connection_text = "接続済み" if connected else "未接続"
             remaining_text = "--" if remaining is None else str(remaining)
             self.bluetooth_status.setText(f"Bluetooth: {connection_text}  |  残り: {remaining_text}枚")
-            color = "#26834a" if connected else "#777"
-            self.bluetooth_status.setStyleSheet(f"font-size: 12px; color: {color}; padding: 2px 6px;")
+            self.bluetooth_status.setProperty("connected", connected)
+            self.bluetooth_status.style().unpolish(self.bluetooth_status)
+            self.bluetooth_status.style().polish(self.bluetooth_status)
 
         completed_capture = self.camera_worker.consume_completed_capture()
         if completed_capture is not None and self.pages.currentWidget() is self.camera_page:
@@ -363,7 +425,7 @@ class CameraWindow(QMainWindow):
                 QImage.Format.Format_RGB888,
             ).copy()
             pixmap = QPixmap.fromImage(image).scaled(
-                self.preview.size(),
+                self.preview.contentsRect().size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -384,7 +446,7 @@ class CameraWindow(QMainWindow):
             self.preview.setPixmap(QPixmap())
             self.preview.setText(message)
             self.status.setText(message)
-            self.start_status.setText(message)
+            self._set_start_status(message)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.shutdown()
@@ -433,8 +495,12 @@ def main() -> int:
 
     instax_worker.start()
     camera_worker.start()
-    window.show()
-    # window.showFullScreen()
+    # 600×1024の実画面では、ウィンドウ枠やデスクトップのバーの分も考慮する。
+    available = window.screen().availableGeometry()
+    if available.width() <= window.width() or available.height() <= window.height():
+        window.showMaximized()
+    else:
+        window.show()
     exit_code = app.exec()
     window.shutdown()
     return exit_code
