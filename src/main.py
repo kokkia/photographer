@@ -28,7 +28,7 @@ else:  # python src/main.py で直接実行する場合
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="カメラ映像から人物、顔、ピースサインをリアルタイム検出します。")
-    parser.add_argument("--camera", type=int, default=0, help="カメラ番号（デフォルト: 0）")
+    parser.add_argument("--camera", type=str, default="/dev/camera_front", help="カメラのデバイスパス（デフォルト: /dev/camera_front）")
     parser.add_argument(
         "--output-dir",
         type=Path,
