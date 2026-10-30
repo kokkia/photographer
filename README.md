@@ -1,6 +1,16 @@
 # photographer
 
-ノートPCのカメラ映像から、人物・顔・ピースサインをリアルタイムで検出するOpenCVアプリです。
+カメラ画像からピースサインを検出したら、写真を取り、instax miniから写真を印刷するソフトウェア。  
+結婚式の受付で使用！
+
+## 実行方法
+
+1. instax miniの電源を入れる
+2. ソフトウェアを起動
+```bash
+bash run_photographer.sh
+```
+# 以下、環境設定方法
 
 ## 環境構築 (camera)
 ```bash
@@ -52,7 +62,7 @@ curl -fL \
   -o models/blaze_face_short_range.tflite
 ```
 
-## 実行方法
+## 実行方法詳細
 
 1. instax miniの電源を入れる
 2. ソフトウェアを起動
