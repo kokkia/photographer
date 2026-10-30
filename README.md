@@ -10,7 +10,6 @@
 ```bash
 bash run_photographer.sh
 ```
-# 以下、環境設定方法
 
 ## 環境構築 (camera)
 ```bash
