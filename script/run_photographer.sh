@@ -50,4 +50,4 @@ mkdir -p -- "${MPL_CACHE_DIR}"
 export MPLCONFIGDIR="${MPL_CACHE_DIR}"
 
 cd -- "${PROJECT_ROOT}"
-exec python -m src.gui "$@" --camera /dev/camera_front
+exec python -m src.gui "$@" --camera /dev/camera_front --output-dir "${PROJECT_ROOT}/captured_images"

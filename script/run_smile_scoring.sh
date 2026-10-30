@@ -50,4 +50,4 @@ mkdir -p -- "${MPL_CACHE_DIR}"
 export MPLCONFIGDIR="${MPL_CACHE_DIR}"
 
 cd -- "${PROJECT_ROOT}"
-exec python -m src.smile_score_images
+exec python -m src.smile_score_images "$@" --input-dir "${PROJECT_ROOT}/captured_images"        
