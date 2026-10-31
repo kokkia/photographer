@@ -18,3 +18,4 @@ bash run_photographer.sh
 
 ## detail
 - [setting](setting.md)
+- [トラブルシューティング](https://github.com/kokkia/photographer/issues/2)
